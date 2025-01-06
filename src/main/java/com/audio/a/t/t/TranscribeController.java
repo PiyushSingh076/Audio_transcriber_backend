@@ -9,43 +9,50 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 @RestController
 @RequestMapping("/api/transcribe")
 public class TranscribeController {
 
     private final OpenAiAudioTranscriptionModel transcriptionModel;
-    //custom definiton of the constructor for this usage (have to remember)
+
     public TranscribeController(@Value("${spring.ai.openai.api-key}") String apikey) {
         OpenAiAudioApi openAiApi = new OpenAiAudioApi(apikey);
-        this.transcriptionModel = new OpenAiAudioTranscriptionModel(openAiApi); //u need openaiapi object to create object of this
+        this.transcriptionModel = new OpenAiAudioTranscriptionModel(openAiApi);
     }
 
     @PostMapping
     public ResponseEntity<String> transcribeAudio(@RequestParam("file") MultipartFile file) throws IOException {
-        File tempfile = File.createTempFile("audio",".wav");
-        file.transferTo(tempfile);
-        //this is the file that we upload we set it into the template
+        File tempfile = File.createTempFile("audio", ".wav");
 
-        //...options is basically instructions as of how to proceed with that file and its transcription (this is what open ai understands)
+        try (FileOutputStream fileOutputStream = new FileOutputStream(tempfile, true);
+             InputStream inputStream = file.getInputStream()) {
+
+            // Append the audio data into the temp file
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                fileOutputStream.write(buffer, 0, bytesRead);
+            }
+        }
+
         OpenAiAudioTranscriptionOptions transcriptionOptions = OpenAiAudioTranscriptionOptions.builder()
                 .withResponseFormat(OpenAiAudioApi.TranscriptResponseFormat.TEXT)
                 .withLanguage("en")
                 .withTemperature(0f)
                 .build();
 
-        FileSystemResource audioFile = new FileSystemResource(tempfile); //wraps the file for tanscription api to make use
+        FileSystemResource audioFile = new FileSystemResource(tempfile);
 
-        AudioTranscriptionPrompt transcriptionRequest = new AudioTranscriptionPrompt(audioFile,transcriptionOptions); //send file and options to model
-        AudioTranscriptionResponse response = transcriptionModel.call(transcriptionRequest);//model is encapsulated with the method to generate the transcription
+        AudioTranscriptionPrompt transcriptionRequest = new AudioTranscriptionPrompt(audioFile, transcriptionOptions);
+        AudioTranscriptionResponse response = transcriptionModel.call(transcriptionRequest);
 
         tempfile.delete();
         return new ResponseEntity<>(response.getResult().getOutput(), HttpStatus.OK);
